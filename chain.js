@@ -2,23 +2,24 @@
 (function(){
     // Physics constants
     const FrameDelayMillis = 10;
+    const FrictionHalfLifeSeconds = 0.5;
     const BallMass = 0.1;
     const SpringRestLength = 0.04;
     const SpringConst = 1000.0;
 
     // Rendering constants
-    const Friction = 0.9998;
     const PixelsPerMeter = 400.0;       // rendering zoom factor
     const iOrigin = 400;                // hor location of world origin on canvas [pixels]
     const jOrigin =  50;                // ver location of world origin on canvas [pixels]
     const BallRadiusMeters = 0.01;
+    const GrabDistanceLimit = 0.1;
 
     var sim;
 
     class Ball {
-        constructor(mass, isAnchor, x, y) {
+        constructor(mass, anchor, x, y) {
             this.mass = mass;
-            this.isAnchor = isAnchor;   // true if ball is fixed in place
+            this.anchor = anchor;   // 0=mobile, positive=fixed in place
 
             // position vector
             this.x = x;
@@ -31,6 +32,12 @@
             // force vector
             this.fx = 0.0;
             this.fy = 0.0;
+        }
+
+        Distance(x, y) {
+            const dx = this.x - x;
+            const dy = this.y - y;
+            return Math.sqrt(dx*dx + dy*dy);
         }
     }
 
@@ -47,6 +54,10 @@
             let dx = this.ball2.x - this.ball1.x;
             let dy = this.ball2.y - this.ball1.y;
             let len = Math.sqrt(dx*dx + dy*dy);
+
+            // Safety valve: if two balls are at the same location, we avoid division by zero.
+            if (Math.abs(len) < 1.0e-6)
+                return;
 
             // The difference between the spring's rest length and its current length
             // tells how much it is stretched or compressed.
@@ -73,6 +84,8 @@
             // Initialize gravity vector: 9.8 m/s^2, pointing straight down.
             this.gx = 0.0;
             this.gy = -9.8;
+
+            this.grabbedBall = null;
         }
 
         AddBall(ball) {
@@ -87,6 +100,8 @@
 
         Update(dt) {
             let b, s;
+
+            const friction = Math.pow(0.5, dt / FrictionHalfLifeSeconds);
 
             // We need to add up all the forces on all the balls.
             // Start out with just the gravitational force.
@@ -105,7 +120,7 @@
             // Now all the forces are correct.
             // Use the forces to update the position and speed of each ball.
             for (b of this.ballList) {
-                if (!b.isAnchor) {       // skip anchors, because they don't move
+                if (b.anchor === 0) {       // skip anchors, because they don't move
                     // F = ma, therefore a = dv/dt = F/m.
                     // dv = dt * F/m
                     let dvx = dt * b.fx/b.mass;
@@ -116,20 +131,65 @@
                     b.y += dt * (b.vy + dvy/2.0);
 
                     // Update the ball's speed.
-                    b.vx = Friction*b.vx + dvx;
-                    b.vy = Friction*b.vy + dvy;
+                    b.vx = friction*b.vx + dvx;
+                    b.vy = friction*b.vy + dvy;
                 }
+            }
+        }
+
+        Grab(x, y) {
+            // Not allowed to grab more than one ball at a time (safety valve).
+            if (this.grabbedBall)
+                return;
+
+            // Find the ball closest to the mouse coordinates.
+            let closest;
+            let bestDistance;
+            if (this.ballList.length > 0) {
+                closest = this.ballList[0];
+                bestDistance = closest.Distance(x, y);
+                for (let i=0; i < this.ballList.length; ++i) {
+                    const b = this.ballList[i];
+                    const distance = b.Distance(x, y);
+                    if (distance < bestDistance) {
+                        closest = b;
+                        bestDistance = distance;
+                    }
+                }
+
+                // If it is close enough to be grabbed, grab it.
+                if (bestDistance <= GrabDistanceLimit) {
+                    ++closest.anchor;
+                    this.grabbedBall = closest;
+                    this.Pull(x, y);
+                }
+            }
+        }
+
+        Pull(x, y) {
+            if (this.grabbedBall) {
+                this.grabbedBall.x = x;
+                this.grabbedBall.y = y;
+                this.grabbedBall.vx = 0;
+                this.grabbedBall.vy = 0;
+            }
+        }
+
+        Release() {
+            if (this.grabbedBall) {
+                --this.grabbedBall.anchor;
+                this.grabbedBall = null;
             }
         }
     }
 
     function InitWorld() {
         let sim = new Simulation();
-        let anchor1 = sim.AddBall(new Ball(BallMass, true, 0.0, 0.0));
+        let anchor1 = sim.AddBall(new Ball(BallMass, 1, 0.0, 0.0));
 
         let prevBall = anchor1;
         for (let i=1; i <= 10; ++i) {
-            let ball = sim.AddBall(new Ball(BallMass, false, 0.01 * i, -0.05 * i));
+            let ball = sim.AddBall(new Ball(BallMass, 0, 0.01 * i, -0.05 * i));
             sim.AddSpring(new Spring(ball, prevBall, SpringRestLength, SpringConst));
             prevBall = ball;
         }
@@ -145,23 +205,52 @@
         return jOrigin - (PixelsPerMeter * y);
     }
 
+    function WorldX(hor) {
+        return (hor - iOrigin) / PixelsPerMeter;
+    }
+
+    function WorldY(ver) {
+        return (jOrigin - ver) / PixelsPerMeter;
+    }
+
     function Render(sim) {
         const canvas = document.getElementById('SimCanvas');
         const context = canvas.getContext('2d');
         context.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
 
-        for (let b of sim.ballList) {
-            // Draw each ball as a filled-in circle.
+        context.strokeStyle = '#03f';
+        context.lineWidth = 1;
+        for (let s of sim.springList) {
             context.beginPath();
-            context.arc(ScreenHor(b.x), ScreenVer(b.y), BallRadiusMeters * PixelsPerMeter, 0, 2*Math.PI, true);
-            context.strokeStyle = '#000';
-            context.lineWidth = 1;
+            context.moveTo(ScreenHor(s.ball1.x), ScreenVer(s.ball1.y));
+            context.lineTo(ScreenHor(s.ball2.x), ScreenVer(s.ball2.y));
             context.stroke();
+        }
+
+        context.strokeStyle = '#000';
+        context.lineWidth = 1;
+        const pixelRadius = BallRadiusMeters * PixelsPerMeter;
+        for (let b of sim.ballList) {
+            if (b.anchor === 0) {
+                // Draw each mobile ball as a filled-in, green circle.
+                context.fillStyle = '#8f0';
+                context.beginPath();
+                context.arc(ScreenHor(b.x), ScreenVer(b.y), pixelRadius, 0, 2*Math.PI, true);
+                context.fill();
+                context.stroke();
+            } else {
+                // Draw each anchored ball as a filled-in, red square.
+                context.fillStyle = '#f80';
+                const x1 = ScreenHor(b.x) - pixelRadius;
+                const y1 = ScreenVer(b.y) - pixelRadius;
+                context.strokeRect(x1, y1, 2*pixelRadius, 2*pixelRadius);
+                context.fillRect(x1, y1, 2*pixelRadius, 2*pixelRadius);
+            }
         }
     }
 
     function AnimationFrame() {
-        const SimStepsPerFrame = 100;
+        const SimStepsPerFrame = 1000;
         const dt = (0.001 * FrameDelayMillis) / SimStepsPerFrame;
         for (let i=0; i < SimStepsPerFrame; ++i) {
             sim.Update(dt);
@@ -170,8 +259,39 @@
         window.setTimeout(AnimationFrame, FrameDelayMillis);
     }
 
+    function OnMouseDown(evt) {
+        const canvas = document.getElementById('SimCanvas');
+        const hor = evt.pageX - canvas.offsetLeft;
+        const ver = evt.pageY - canvas.offsetTop;
+        const x = WorldX(hor);
+        const y = WorldY(ver);
+        sim.Grab(x, y);
+    }
+
+    function OnMouseUp(evt) {
+        sim.Release();
+    }
+
+    function OnMouseMove(evt) {
+        const canvas = document.getElementById('SimCanvas');
+        const hor = evt.pageX - canvas.offsetLeft;
+        const ver = evt.pageY - canvas.offsetTop;
+        const x = WorldX(hor);
+        const y = WorldY(ver);
+        sim.Pull(x, y);
+    }
+
+    function OnMouseLeave() {
+        sim.Release();
+    }
+
     window.onload = function() {
         sim = InitWorld();
+        const canvas = document.getElementById('SimCanvas');
+        canvas.addEventListener('mousedown', OnMouseDown);
+        canvas.addEventListener('mouseup', OnMouseUp);
+        canvas.addEventListener('mousemove', OnMouseMove);
+        canvas.addEventListener('mouseleave', OnMouseLeave);
         AnimationFrame();
     }
 })();
