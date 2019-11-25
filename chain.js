@@ -2,17 +2,17 @@
 (function(){
     // Physics constants
     const FrameDelayMillis = 10;
-    const FrictionHalfLifeSeconds = 0.5;
+    const FrictionHalfLifeSeconds = 1.7;
     const BallMass = 0.1;
     const SpringRestLength = 0.04;
-    const SpringConst = 1000.0;
+    const SpringConst = 500.0;
 
     // Rendering constants
-    const PixelsPerMeter = 400.0;       // rendering zoom factor
+    const PixelsPerMeter = 50.0;        // rendering zoom factor
     const iOrigin = 400;                // hor location of world origin on canvas [pixels]
     const jOrigin =  50;                // ver location of world origin on canvas [pixels]
-    const BallRadiusMeters = 0.01;
-    const GrabDistanceLimit = 0.1;
+    const BallRadiusMeters = 0.05;
+    const GrabDistanceLimit = 1.0;
 
     var sim;
 
@@ -188,7 +188,7 @@
         let anchor1 = sim.AddBall(new Ball(BallMass, 1, 0.0, 0.0));
 
         let prevBall = anchor1;
-        for (let i=1; i <= 10; ++i) {
+        for (let i=1; i <= 35; ++i) {
             let ball = sim.AddBall(new Ball(BallMass, 0, 0.01 * i, -0.05 * i));
             sim.AddSpring(new Spring(ball, prevBall, SpringRestLength, SpringConst));
             prevBall = ball;
@@ -250,7 +250,7 @@
     }
 
     function AnimationFrame() {
-        const SimStepsPerFrame = 1000;
+        const SimStepsPerFrame = 1;
         const dt = (0.001 * FrameDelayMillis) / SimStepsPerFrame;
         for (let i=0; i < SimStepsPerFrame; ++i) {
             sim.Update(dt);
