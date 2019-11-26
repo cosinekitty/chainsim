@@ -3,7 +3,7 @@
     // Physics constants
     const SimStepsPerFrame = 1000;
     const FrameDelayMillis = 10;
-    const FrictionHalfLifeSeconds = 2.5;
+    const FrictionHalfLifeSeconds = 1.5;
     const BallMass = 0.1;
     const SpringRestLength = 0.04;
     const SpringConst = 500.0;
