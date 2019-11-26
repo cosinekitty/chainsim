@@ -1,18 +1,19 @@
 'use strict';
 (function(){
     // Physics constants
+    const SimStepsPerFrame = 1000;
     const FrameDelayMillis = 10;
-    const FrictionHalfLifeSeconds = 0.7;
+    const FrictionHalfLifeSeconds = 2.5;
     const BallMass = 0.1;
     const SpringRestLength = 0.04;
     const SpringConst = 500.0;
 
     // Rendering constants
-    const PixelsPerMeter = 50.0;        // rendering zoom factor
+    const PixelsPerMeter = 200.0;       // rendering zoom factor
     const iOrigin = 400;                // hor location of world origin on canvas [pixels]
-    const jOrigin =  50;                // ver location of world origin on canvas [pixels]
-    const BallRadiusMeters = 0.05;
-    const GrabDistanceLimit = 1.0;
+    const jOrigin = 100;                // ver location of world origin on canvas [pixels]
+    const BallRadiusMeters = 0.02;
+    const GrabDistanceLimit = 2.0;
 
     var sim;
 
@@ -110,8 +111,8 @@
             // Start out with just the gravitational force.
             for (let b of this.ballList) {
                 b.fx = 0.0;
-                b.fy = this.gravity;
-                potentialEnergy += b.y * b.mass * this.gravity;
+                b.fy = b.mass * this.gravity;
+                potentialEnergy += b.y * b.fy;
                 kineticEnergy += (b.mass * (b.vx*b.vx + b.vy*b.vy)) / 2.0;
             }
 
@@ -130,12 +131,12 @@
         }
 
         Update(dt) {
-            let b;
-            const energyBefore = this.CalcState();
+            this.CalcState();
 
             // Now all the forces are correct.
             // Use the forces to update the position and speed of each ball.
-            for (b of this.ballList) {
+            const friction = Math.pow(0.5, dt / FrictionHalfLifeSeconds);
+            for (let b of this.ballList) {
                 if (b.anchor === 0) {       // skip anchors, because they don't move
                     // F = ma, therefore a = dv/dt = F/m.
                     // dv = dt * F/m
@@ -147,32 +148,8 @@
                     b.y += dt * (b.vy + dvy/2.0);
 
                     // Update the ball's speed.
-                    b.vx += dvx;
-                    b.vy += dvy;
-                }
-            }
-
-            const energyAfter = this.CalcState();
-
-            // Energy must be conserved in order to manitain a stable simulation.
-            // We leave the balls in whatever position they are in, but
-            // increase/decrease the balls speeds just enough to conserve kinetic energy,
-            // with a friction correction to dampen movement over time.
-
-            const energyError = (
-                (energyAfter.kinetic + energyAfter.potential) -
-                (energyBefore.kinetic + energyBefore.potential)
-            );
-
-            if (energyAfter.kinetic !== 0.0) {
-                const alpha = 1.0 - (energyError / energyAfter.kinetic);
-                if (false && alpha >= 0.0) {
-                    const kineticCorrection = Math.sqrt(alpha);
-                    const friction = kineticCorrection * Math.pow(0.5, dt / FrictionHalfLifeSeconds);
-                    for (b of this.ballList) {
-                        b.vx *= friction;
-                        b.vy *= friction;
-                    }
+                    b.vx = (friction * b.vx) + dvx;
+                    b.vy = (friction * b.vy) + dvy;
                 }
             }
         }
@@ -292,7 +269,6 @@
     }
 
     function AnimationFrame() {
-        const SimStepsPerFrame = 400;
         const dt = (0.001 * FrameDelayMillis) / SimStepsPerFrame;
         for (let i=0; i < SimStepsPerFrame; ++i) {
             sim.Update(dt);
