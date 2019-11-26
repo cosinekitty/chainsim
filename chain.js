@@ -2,7 +2,7 @@
 (function(){
     // Physics constants
     const FrameDelayMillis = 10;
-    const FrictionHalfLifeSeconds = 1.7;
+    const FrictionHalfLifeSeconds = 0.7;
     const BallMass = 0.1;
     const SpringRestLength = 0.04;
     const SpringConst = 500.0;
@@ -51,28 +51,31 @@
 
         AddForce() {
             // Calculate the length of the spring.
-            let dx = this.ball2.x - this.ball1.x;
-            let dy = this.ball2.y - this.ball1.y;
-            let len = Math.sqrt(dx*dx + dy*dy);
-
-            // Safety valve: if two balls are at the same location, we avoid division by zero.
-            if (Math.abs(len) < 1.0e-6)
-                return;
+            const dx = this.ball2.x - this.ball1.x;
+            const dy = this.ball2.y - this.ball1.y;
+            const len = Math.sqrt(dx*dx + dy*dy);
 
             // The difference between the spring's rest length and its current length
             // tells how much it is stretched or compressed.
             // Multiply by the spring constant to get the magnitude of the force.
-            let force = this.springConst * (len - this.restLength);
+            const displacement = len - this.restLength;
+            const force = this.springConst * displacement;
 
-            // Calculate force vector = force magnitude * directional unit vector
-            let fx = force * (dx / len);
-            let fy = force * (dy / len);
+            // Safety valve: if two balls are at the same location, we avoid division by zero.
+            if (Math.abs(len) >= 1.0e-6) {
+                // Calculate force vector = force magnitude * directional unit vector
+                const fx = force * (dx / len);
+                const fy = force * (dy / len);
 
-            // Add equal and opposite forces to the two connected balls.
-            this.ball1.fx += fx;
-            this.ball1.fy += fy;
-            this.ball2.fx -= fx;
-            this.ball2.fy -= fy;
+                // Add equal and opposite forces to the two connected balls.
+                this.ball1.fx += fx;
+                this.ball1.fy += fy;
+                this.ball2.fx -= fx;
+                this.ball2.fy -= fy;
+            }
+
+            const potentialEnergy = (force * displacement) / 2.0;
+            return potentialEnergy;
         }
     }
 
@@ -82,8 +85,7 @@
             this.springList = [];
 
             // Initialize gravity vector: 9.8 m/s^2, pointing straight down.
-            this.gx = 0.0;
-            this.gy = -9.8;
+            this.gravity = -9.8;
 
             this.grabbedBall = null;
         }
@@ -98,24 +100,38 @@
             return spring;
         }
 
-        Update(dt) {
-            let b, s;
-
-            const friction = Math.pow(0.5, dt / FrictionHalfLifeSeconds);
+        CalcState() {
+            // Calculate the force vectors acting on all the balls: both from springs and from gravity.
+            // Also add up all kinetic and potential energy in the system.
+            let potentialEnergy = 0.0;
+            let kineticEnergy = 0.0;
 
             // We need to add up all the forces on all the balls.
             // Start out with just the gravitational force.
-            for (b of this.ballList) {
-                b.fx = this.gx;
-                b.fy = this.gy;
+            for (let b of this.ballList) {
+                b.fx = 0.0;
+                b.fy = this.gravity;
+                potentialEnergy += b.y * b.mass * this.gravity;
+                kineticEnergy += (b.mass * (b.vx*b.vx + b.vy*b.vy)) / 2.0;
             }
 
             // Go through all the springs and calculate
             // the forces on the balls connected to their endpoints.
             // They will be equal and opposite forces on the pair.
-            for (s of this.springList) {
-                s.AddForce();
+            // Also add up all the potential energy stored in the springs.
+            for (let s of this.springList) {
+                potentialEnergy += s.AddForce();
             }
+
+            return {
+                kinetic: kineticEnergy,
+                potential: potentialEnergy
+            };
+        }
+
+        Update(dt) {
+            let b;
+            const energyBefore = this.CalcState();
 
             // Now all the forces are correct.
             // Use the forces to update the position and speed of each ball.
@@ -131,8 +147,32 @@
                     b.y += dt * (b.vy + dvy/2.0);
 
                     // Update the ball's speed.
-                    b.vx = friction*b.vx + dvx;
-                    b.vy = friction*b.vy + dvy;
+                    b.vx += dvx;
+                    b.vy += dvy;
+                }
+            }
+
+            const energyAfter = this.CalcState();
+
+            // Energy must be conserved in order to manitain a stable simulation.
+            // We leave the balls in whatever position they are in, but
+            // increase/decrease the balls speeds just enough to conserve kinetic energy,
+            // with a friction correction to dampen movement over time.
+
+            const energyError = (
+                (energyAfter.kinetic + energyAfter.potential) -
+                (energyBefore.kinetic + energyBefore.potential)
+            );
+
+            if (energyAfter.kinetic !== 0.0) {
+                const alpha = 1.0 - (energyError / energyAfter.kinetic);
+                if (false && alpha >= 0.0) {
+                    const kineticCorrection = Math.sqrt(alpha);
+                    const friction = kineticCorrection * Math.pow(0.5, dt / FrictionHalfLifeSeconds);
+                    for (b of this.ballList) {
+                        b.vx *= friction;
+                        b.vy *= friction;
+                    }
                 }
             }
         }
@@ -183,17 +223,19 @@
         }
     }
 
-    function InitWorld() {
-        let sim = new Simulation();
-        let anchor1 = sim.AddBall(new Ball(BallMass, 1, 0.0, 0.0));
-
+    function MakeString(sim, x) {
+        let anchor1 = sim.AddBall(new Ball(BallMass, 1, x, 0.0));
         let prevBall = anchor1;
         for (let i=1; i <= 35; ++i) {
-            let ball = sim.AddBall(new Ball(BallMass, 0, 0.01 * i, -0.05 * i));
+            let ball = sim.AddBall(new Ball(BallMass, 0, x + (0.01 * i), -0.05 * i));
             sim.AddSpring(new Spring(ball, prevBall, SpringRestLength, SpringConst));
             prevBall = ball;
         }
+    }
 
+    function InitWorld() {
+        let sim = new Simulation();
+        MakeString(sim, 0.0);
         return sim;
     }
 
@@ -250,7 +292,7 @@
     }
 
     function AnimationFrame() {
-        const SimStepsPerFrame = 1;
+        const SimStepsPerFrame = 400;
         const dt = (0.001 * FrameDelayMillis) / SimStepsPerFrame;
         for (let i=0; i < SimStepsPerFrame; ++i) {
             sim.Update(dt);
