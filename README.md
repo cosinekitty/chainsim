@@ -1,4 +1,4 @@
-# Hanging Chain Simulator.
+# Hanging Chain Simulator
 Demo of interactive physics simulation in JavaScript.
 
 See the [live version in your browser](https://doncross.net/chainsim/).
