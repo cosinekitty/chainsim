@@ -74,9 +74,6 @@
                 this.ball2.fx -= fx;
                 this.ball2.fy -= fy;
             }
-
-            const potentialEnergy = (force * displacement) / 2.0;
-            return potentialEnergy;
         }
     }
 
@@ -101,42 +98,29 @@
             return spring;
         }
 
-        CalcState() {
-            // Calculate the force vectors acting on all the balls: both from springs and from gravity.
-            // Also add up all kinetic and potential energy in the system.
-            let potentialEnergy = 0.0;
-            let kineticEnergy = 0.0;
+        Update(dt) {
+            var b, s;
 
-            // We need to add up all the forces on all the balls.
-            // Start out with just the gravitational force.
-            for (let b of this.ballList) {
+            // Calculate the force vectors acting on all the balls:
+            // both from springs and from gravity.
+
+            // Start out with just the gravitational force on each ball.
+            for (b of this.ballList) {
                 b.fx = 0.0;
                 b.fy = b.mass * this.gravity;
-                potentialEnergy += b.y * b.fy;
-                kineticEnergy += (b.mass * (b.vx*b.vx + b.vy*b.vy)) / 2.0;
             }
 
             // Go through all the springs and calculate
             // the forces on the balls connected to their endpoints.
-            // They will be equal and opposite forces on the pair.
-            // Also add up all the potential energy stored in the springs.
-            for (let s of this.springList) {
-                potentialEnergy += s.AddForce();
+            // There will be equal and opposite forces on each pair.
+            for (s of this.springList) {
+                s.AddForce();
             }
-
-            return {
-                kinetic: kineticEnergy,
-                potential: potentialEnergy
-            };
-        }
-
-        Update(dt) {
-            this.CalcState();
 
             // Now all the forces are correct.
             // Use the forces to update the position and speed of each ball.
             const friction = Math.pow(0.5, dt / FrictionHalfLifeSeconds);
-            for (let b of this.ballList) {
+            for (b of this.ballList) {
                 if (b.anchor === 0) {       // skip anchors, because they don't move
                     // F = ma, therefore a = dv/dt = F/m.
                     // dv = dt * F/m
@@ -147,7 +131,7 @@
                     b.x += dt * (b.vx + dvx/2.0);
                     b.y += dt * (b.vy + dvy/2.0);
 
-                    // Update the ball's speed.
+                    // Update the ball's speed. Apply friction to gradually reduce energy.
                     b.vx = (friction * b.vx) + dvx;
                     b.vy = (friction * b.vy) + dvy;
                 }
@@ -204,7 +188,7 @@
         let anchor1 = sim.AddBall(new Ball(BallMass, 1, x, 0.0));
         let prevBall = anchor1;
         for (let i=1; i <= 35; ++i) {
-            let ball = sim.AddBall(new Ball(BallMass, 0, x + (0.01 * i), -0.05 * i));
+            let ball = sim.AddBall(new Ball(BallMass, 0, x + (0.027 * i), -0.05 * i));
             sim.AddSpring(new Spring(ball, prevBall, SpringRestLength, SpringConst));
             prevBall = ball;
         }
